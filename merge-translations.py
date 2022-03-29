@@ -19,7 +19,7 @@ class Language:
     area: str
 
     @property
-    def empty(self) -> bool:
+    def is_empty(self) -> bool:
         return not self.lang
 
     @staticmethod
@@ -45,6 +45,9 @@ class Language:
 
         return True
 
+    def __lt__(self, other) -> bool:  # required for sorting
+        return str(self) < str(other)
+
     def __str__(self) -> str:
         if self.area:
             return f'{self.lang.lower()}_{self.area.upper()}'
@@ -63,10 +66,13 @@ class TsFile:
     simplified: Dict[str, BeautifulSoup]
     language: Language
 
+    class LanguageMissingError(Exception):
+        pass
+
     @staticmethod
-    def from_disk(path) -> 'TsFile':
+    def from_disk(path, require_language=True) -> 'TsFile':
         if not Path(path).is_file():
-            raise FileNotFoundError()
+            raise FileNotFoundError(path)
 
         with open(path, 'r') as f:
             parsed = BeautifulSoup(f.read(), 'xml')
@@ -92,8 +98,11 @@ class TsFile:
                 language = Language.from_str(match.group('lang_str'))
 
         if not language:
-            msg = f'cannot extract language from file "{path}"'
-            raise RuntimeError(msg)
+            if require_language:
+                msg = f'cannot extract language from file "{path}"'
+                raise TsFile.LanguageMissingError(msg)
+            else:
+                language = Language('', '')
 
         return TsFile(Path(path), parsed, strings, simplified, language)
 
@@ -123,7 +132,7 @@ class TsDirectory:
         for i in glob.iglob(str(path / '*.[tT][sS]'), recursive=False):
             try:
                 ts = TsFile.from_disk(i)
-            except RuntimeError:
+            except TsFile.LanguageMissingError:
                 print(f'warning: skipped file "{i}"')
                 continue
 
@@ -147,13 +156,17 @@ class Merger:
         self.handled_files: List[TsFile] = []
         self.no_match: List[TsFile] = []
         self.not_handled: List[TsFile] = []
+        self.new_catalogues: Dict[Language, TsFile] = {}
 
         self.overall_changes: int = 0
         self.overall_alternatives: Dict[TsFile, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
         self.overall_alternatives_count: int = 0
+        self.overall_new_catalogues: int = 0
 
         self.output = args.output
         self.force = args.force
+
+        self.base_catalogue = args.base_catalogue
 
         if self.output and Path(self.output).exists() and not self.force:
             msg = f'output directory exists: "{self.output}" (use -f to overwrite)'
@@ -169,6 +182,17 @@ class Merger:
 
             if not self.output.is_dir():
                 msg = f'target directory not found: "{self.output}"'
+        if args.auto_base_catalogue:
+            self.base_catalogue = self._detect_base_catalogue(args)
+
+        if self.base_catalogue:
+            self.base_catalogue = Path(self.base_catalogue)
+
+            if not self.base_catalogue.exists():
+                msg = f'base catalogue file "{self.base_catalogue}" not found'
+                raise FileNotFoundError(msg)
+            elif not self.base_catalogue.is_file():
+                msg = f'base catalogue path "{self.base_catalogue}" must be a file'
                 raise FileNotFoundError(msg)
 
     @staticmethod
@@ -180,6 +204,77 @@ class Merger:
         merger._save()
         merger._report()
         return merger
+
+    def _detect_base_catalogue(self, args) -> Path:
+        print("detecting base catalogue...")
+        target = Path(args.target[0])
+        first = None
+        second = None
+
+        expected = None
+        expected_dir = None
+
+        if target.is_dir():
+            print("- target is a directory")
+            expected_dir = target
+
+            for i in glob.iglob(str(target / '*.ts'), recursive=False):
+                if not first:
+                    first = Path(i).name
+                elif not second:
+                    second = Path(i).name
+                else:
+                    break
+            print("- probing files:", first, second)
+        elif target.is_file():
+            print("- target is a file")
+            first = target.name
+            expected_dir = target.parent
+            print(f"- probing '{first}' in '{expected_dir}'")
+
+        if first and second:
+            common = ''
+            for x, y in zip(list(first), list(second)):
+                if x == y:
+                    common += x
+                else:
+                    break
+
+            first = first[len(common):]
+            print(f"- detected common base '{common}' with remainder '{first}'")
+
+            if match := re.match(r'^-?([a-z]{2}(_[A-Z]{2})?)?\.[tT][sS]$', first):
+                if common.endswith('-'):
+                    common = common[:-1]
+
+                expected = common + '.ts'
+                print(f"- expecting '{expected}' from two files")
+            else:
+                expected = None  # fail
+        elif first:
+            if match := re.match(r'^(?P<base>.+?)(-[a-z]{2}(_[A-Z]{2})?)?\.[tT][sS]$', first):
+                expected = match.group('base') + '.ts'
+                print(f"- expecting '{expected}' from single file")
+            else:
+                expected = None  # fail
+        else:
+            expected = None  # fail
+
+        if expected:
+            expected = Path(expected_dir / expected)
+            print(f"- file exists at {expected}")
+
+            if expected.is_file():
+                pass  # "return expected" below
+            else:
+                msg = f'expected to find the base catalogue at "{expected}" but ' + \
+                      'that file does not exist, use -b to set the path manually'
+                raise FileNotFoundError(msg)
+        else:
+            msg = 'failed to auto-detect the base catalogue, use -b to set the path manually'
+            raise FileNotFoundError(msg)
+
+        return expected
 
     def _collect(self):
         print('collecting files...')
@@ -218,10 +313,34 @@ class Merger:
                 print('- no matching files found')
                 self.no_match.append(t)
 
+        extra_catalogues: Dict[Language, TsFile] = {}
+
         for s in self.sources:
             for s_file in s.files.values():
                 if s_file not in self.handled_files:
-                    self.not_handled.append(s_file)
+                    if not s_file.language.is_empty and self.base_catalogue:
+                        if s_file.language not in extra_catalogues:
+                            new_file = TsFile.from_disk(self.base_catalogue, require_language=False)
+                            new_file.language = s_file.language
+                            new_file.path = self.output / re.sub(r'\.[tT][sS]$', f'-{s_file.language}.ts', self.base_catalogue.name)
+                            new_file.parsed.TS['language'] = str(s_file.language)
+                            extra_catalogues[s_file.language] = new_file
+
+                        self.pairs[extra_catalogues[s_file.language]].append(s_file)
+                    else:
+                        self.not_handled.append(s_file)
+
+        if extra_catalogues:
+            print(f'\n{len(extra_catalogues.keys())} new language catalogues:')
+            self.new_catalogues = extra_catalogues
+            self.overall_new_catalogues = len(self.new_catalogues.keys())
+
+            for key in sorted(extra_catalogues.keys()):
+                val = extra_catalogues[key]
+                print(f'- {key}: {val.path}')
+
+                for i in self.pairs[val]:
+                    print(f'    - {i.path} ({i.language})')
 
     def _do_merge_pair(self, source: TsFile, target: TsFile) -> Tuple[int, Dict[str, List[str]]]:
         changes = 0
@@ -325,7 +444,7 @@ class Merger:
     def _save(self):
         print('saving files...')
 
-        for target in self.target.files.values():
+        for target in self.pairs.keys():
             with open(str(self.output / target.path.name), 'w') as f:
                 f.write(str(target.parsed))
 
@@ -404,6 +523,26 @@ class Merger:
 
             print('')
 
+        if self.new_catalogues:
+            print(textwrap.dedent('''\
+                NEW TRANSLATIONS CATALOGUES
+                ---------------------------
+
+                New translations catalogues have been created in the target for
+                languages that existed only in the sources.
+
+                Note: run 'lupdate' and then run this migration again to make
+                      sure all plural forms are properly created in the target
+
+                '''))
+
+            print('NEW LANGUAGES:')
+
+            for lang in sorted(self.new_catalogues.keys()):
+                print(f'- {lang}: {self.new_catalogues[lang].path}')
+
+            print('')
+
         print(textwrap.dedent('''\
             CONCLUSION
             ----------
@@ -454,6 +593,16 @@ if __name__ == '__main__':
     parser.add_argument('--output', '-o', type=str, nargs='?',
                         help='optional output directory; files will be modified '
                              'in-place if no output directory is specified')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--base-catalogue', '-b', type=str, nargs='?',
+                       help='use this translations file as the basis for creating '
+                            'missing translations that do not yet exist on the target side. '
+                            'If no base catalogue is specified, missing translations '
+                            'will be ignored.')
+    group.add_argument('--auto-base-catalogue', '-B', action='store_true', default=False,
+                       help='try to automatically detect the base catalogue to use '
+                            'for creating missing translations that do not yet exist '
+                            'on the target side. (default: disabled)')
 
     args = parser.parse_args()
 
