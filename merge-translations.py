@@ -122,9 +122,15 @@ class TsDirectory:
         pass
 
     @staticmethod
-    def from_disk(path) -> 'TsDirectory':
+    def from_disk(path, allow_single_file=False) -> 'TsDirectory':
         path = Path(path)
-        if not path.is_dir():
+
+        if not path.exists():
+            msg = f'file or directory "{path}" not found'
+            raise FileNotFoundError(msg)
+        elif allow_single_file and path.is_file():
+            return TsDirectory.from_single_file(path, require_language=True)
+        elif not path.is_dir():
             msg = f'directory "{path}" not found'
             raise FileNotFoundError(msg)
 
@@ -143,6 +149,31 @@ class TsDirectory:
             files[ts.language] = ts
 
         return TsDirectory(path, files)
+
+    @staticmethod
+    def from_single_file(path, require_language=True) -> 'TsDirectory':
+        path = Path(path)
+
+        if not path.exists():
+            msg = f'file "{path}" not found'
+            raise FileNotFoundError(msg)
+        elif not path.is_file():
+            if path.is_dir():
+                msg = f'path "{path}" is not a file - use "from_disk()" to load a directory from disk'
+            else:
+                msg = f'path "{path}" must be a file'
+            raise FileNotFoundError(msg)
+
+        try:
+            ts = TsFile.from_disk(path, require_language=require_language)
+        except TsFile.LanguageMissingError:
+            if require_language:
+                msg = f'file "{path}" used as single-file directory does not specify a language'
+                raise TsFile.LanguageMissingError(msg)
+            else:
+                pass
+
+        return TsDirectory(path.parent, {ts.language: ts})
 
 
 class Merger:
@@ -180,8 +211,16 @@ class Merger:
         else:
             self.output = Path(args.target[0])
 
-            if not self.output.is_dir():
-                msg = f'target directory not found: "{self.output}"'
+            if self.output.is_file():
+                self.output = self.output.parent
+
+            if not self.output.exists():
+                msg = f'output directory "{self.output}" not found'
+                raise FileNotFoundError(msg)
+            elif not self.output.is_dir():
+                msg = f'output path "{self.output}" must be a directory'
+                raise FileNotFoundError(msg)
+
         if args.auto_base_catalogue:
             self.base_catalogue = self._detect_base_catalogue(args)
 
@@ -280,16 +319,17 @@ class Merger:
         print('collecting files...')
 
         try:
-            self.target = TsDirectory.from_disk(args.target[0])
+            self.target = TsDirectory.from_disk(args.target[0], allow_single_file=True)
         except FileNotFoundError:
-            print('error: target directory not found')
-            raise FileNotFoundError()
+            msg = f'target directory not found at "{args.target[0]}"'
+            raise FileNotFoundError(msg)
         except TsDirectory.DuplicateLanguageError:
-            print('error: target directory contains invalid files')
+            msg = f'target directory "{args.target[0]}" contains multiple files for the same language'
+            print(f"warning: {msg}")
 
         try:
             for i in args.source:
-                self.sources.append(TsDirectory.from_disk(i))
+                self.sources.append(TsDirectory.from_disk(i, allow_single_file=True))
         except FileNotFoundError:
             print('error: source directory not found')
             raise
@@ -582,14 +622,14 @@ if __name__ == '__main__':
     )
 
     parser.add_argument('source', type=str, nargs='+',
-                        help='one or more directories containing '
+                        help='one or more files or directories containing '
                              'translations files (.ts) to take translations from')
     parser.add_argument('target', type=str, nargs=1,
-                        help='directory containing translations files (.ts) to '
+                        help='file or directory containing translations files (.ts) to '
                              'merge new translations into')
 
     parser.add_argument('--force', '-f', action='store_true', default=False,
-                        help='overwrite existing files')
+                        help='overwrite existing files (default: disabled)')
     parser.add_argument('--output', '-o', type=str, nargs='?',
                         help='optional output directory; files will be modified '
                              'in-place if no output directory is specified')
