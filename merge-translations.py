@@ -491,6 +491,13 @@ class Merger:
     def _report(self):
         print('')
 
+        summary = []
+
+        if self.overall_changes:
+            summary.append(f'{self.overall_changes} strings updated')
+        else:
+            summary.append('no strings updated')
+
         if self.overall_alternatives:
             print(textwrap.dedent('''\
                 AMBIGUOUS STRINGS
@@ -506,6 +513,7 @@ class Merger:
 
                 '''))
 
+            summary.append(f'{self.overall_alternatives_count} ambiguous strings in {len(self.overall_alternatives.items())} files')
             print(f'{self.overall_alternatives_count} AMBIGUOUS STRINGS IN {len(self.overall_alternatives.items())} FILES:')
 
             for group in sorted(self.overall_alternatives.keys()):
@@ -535,6 +543,7 @@ class Merger:
 
                 '''))
 
+            summary.append(f'{len(self.no_match)} unmatched files')
             print('NO MATCHING FILES FOR:')
 
             for i in self.no_match:
@@ -560,6 +569,7 @@ class Merger:
 
                 '''))
 
+            summary.append(f'{len(self.not_handled)} unhandled files')
             print('UNHANDLED FILES:')
 
             for i in self.not_handled:
@@ -580,6 +590,7 @@ class Merger:
 
                 '''))
 
+            summary.append(f'{len(self.new_catalogues.keys())} new catalogues')
             print('NEW LANGUAGES:')
 
             for lang in sorted(self.new_catalogues.keys()):
@@ -590,6 +601,12 @@ class Merger:
         print(textwrap.dedent('''\
             CONCLUSION
             ----------
+            '''))
+
+        for i in summary:
+            print(f'- {i}')
+
+        print(textwrap.dedent('''\
 
             Note: run lupdate on the updated files to make sure they are
                   formatted correctly. The binary may be called lupdate-qt5.
