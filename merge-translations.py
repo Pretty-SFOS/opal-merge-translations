@@ -392,9 +392,14 @@ class Merger:
                 has_numerus = False
 
                 if len(other.select('numerusform')) != len(own.select('numerusform')):
-                    print("WARNING: string has numerusform in one file but not in other")
-                    print(f"        {key}: {len(other.select('numerusform'))} vs. {len(own.select('numerusform'))}")
                     has_numerus = True
+                    own_nums = own.select('numerusform')
+
+                    if not own.string and len(own_nums) == 1 and not own_nums[0].string:  # and getattr(own, 'type', '') == 'unfinished':
+                        own.replace_with(other)  # insert all plural forms
+                    else:
+                        print("WARNING: string has numerusform in one file but not in other")
+                        print(f"        {key}: {len(other.select('numerusform'))} vs. {len(own.select('numerusform'))}")
                 elif len(own.select('numerusform')) > 0:
                     own_nums = own.select('numerusform')
                     other_nums = other.select('numerusform')
@@ -416,15 +421,17 @@ class Merger:
 
                     equal = True
                     has_empty = False
+
                     for a, b in zip(own_nums, other_nums):
                         if a.string != b.string:
                             equal = False
+
                         if not a.string or not b.string:
                             has_empty = True
 
                     if equal and getattr(other, 'type', '') != 'unfinished' or getattr(own, 'type', '') != 'unfinished':
                         own['type'] = ''
-                        del own['type']
+                        # del own['type']
 
                     if has_empty:
                         own['type'] = 'unfinished'
@@ -434,10 +441,13 @@ class Merger:
 
                     if getattr(other, 'type', '') == 'unfinished':
                         own['type'] = 'unfinished'
+                    else:
+                        own['type'] = ''
+                        # del own['type']
                 elif other.string == own.string:
                     if getattr(other, 'type', '') != 'unfinished' or getattr(own, 'type', '') != 'unfinished':
                         own['type'] = ''
-                        del own['type']
+                        # del own['type']
                     # changes += 1
                 elif other.string and other.string != own.string:
                     comment = XmlComment('alternative translation: ' + other.string)
@@ -448,6 +458,7 @@ class Merger:
                         alternatives[key].append(other.string)
                     else:
                         alternatives[key] += ['** ' + own.string, other.string]
+
                 if not has_numerus and not own.string:
                     own['type'] = 'unfinished'
 
