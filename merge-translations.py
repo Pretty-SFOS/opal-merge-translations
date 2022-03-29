@@ -393,7 +393,7 @@ class Merger:
 
                 if len(other.select('numerusform')) != len(own.select('numerusform')):
                     print("WARNING: string has numerusform in one file but not in other")
-                    print(f"         '{own.string}' | '{other.string}'")
+                    print(f"        {key}: {len(other.select('numerusform'))} vs. {len(own.select('numerusform'))}")
                     has_numerus = True
                 elif len(own.select('numerusform')) > 0:
                     own_nums = own.select('numerusform')
@@ -530,8 +530,8 @@ class Merger:
                 UNMATCHED FILES
                 ---------------
 
-                There were files without any matching translations files. This
-                might be a chance to contribute translations back.
+                There were target files without any matching source translations
+                files. This might be a chance to contribute translations back.
 
                 '''))
 
@@ -547,12 +547,16 @@ class Merger:
                 UNHANDLED FILES
                 ---------------
 
-                There were files that could not be handled at all. Make sure they
-                are properly formatted and contain a language definition.
+                There were source files without any matching target translations
+                files. This means their languages are not yet supported by the
+                target. Use the '-b' option to enable creating new catalogues.
+
+                Some files may also be improperly formatted or do not contain
+                a language definition. These files cannot be handled.
 
                 "Source" translation files, i.e. base catalogues containing only
                 untranslated strings, should not define a language and should
-                be listed here. This does not require further action.
+                also be listed here. This does not require further action.
 
                 '''))
 
@@ -603,21 +607,13 @@ if __name__ == '__main__':
             Automatically merge Qt translations files using a same-text heuristic.
 
             Source and target file pairs will be matched based on the languages
-            defined in the files. File names will parsed be used if no language
-            is defined.
+            defined in the files. File names will parsed if no language is defined.
 
-            Existing translations will not be overwritten.
-            Use the -A flag to exclude alternative translations found in source
-            files. By default, alternative translations will be added ...
+            Already translated strings will not be overwritten.
         '''),
         epilog=textwrap.dedent('''\
-            TODO:
-            - support merging two or more files instead of directories
-            - merge into Opal and replace opal-merge-translations.sh
-            n mark all strings changed by this tool as 'unfinished'
-            x support merging directories
-            x count and report changes
-            x report ambiguous strings requiring extra attention
+            Examples:
+                merge-translations.py libs/opal-translations/* translations -f -b translations/harbour-captains-log.ts
         ''')
     )
 
