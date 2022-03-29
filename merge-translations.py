@@ -613,7 +613,33 @@ if __name__ == '__main__':
         '''),
         epilog=textwrap.dedent('''\
             Examples:
-                merge-translations.py libs/opal-translations/* translations -f -b translations/harbour-captains-log.ts
+                # Merge translations from one directory into another, creating
+                # missing catalogues on the way.
+
+                merge-translations.py libs/opal-translations/* translations -B -o new-translations
+
+
+                # Same as above, but overwrite original translation files instead
+                # of creating a new directory. Use with care.
+
+                merge-translations.py libs/opal-translations/* translations -B -f
+
+
+                # Same as above but save all output to a file and run 'lupdate' afterwards.
+
+                merge-translations.py libs/opal-translations/* translations -B -f | tee merge.log && lupdate-qt5 qml src -ts translations/*.ts
+
+
+                # Merge two translations files into the second. Aborts if
+                # languages don't match.
+
+                merge-translations.py your-translations.ts my-translations.ts -f
+
+
+                # Update a single translations catalogue from wherever possible
+                # into a new file below out/.
+
+                merge-translations.py all-translations my-translations.ts -o out
         ''')
     )
 
