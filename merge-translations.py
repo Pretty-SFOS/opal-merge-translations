@@ -9,8 +9,15 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
-from bs4 import BeautifulSoup
-from bs4 import Comment as XmlComment
+
+try:
+    from bs4 import BeautifulSoup
+    from bs4 import Comment as XmlComment
+except ModuleNotFoundError as e:
+    if __name__ == '__main__':
+        pass  # handled after parsing cli arguments
+    else:
+        raise e
 
 
 @dataclass
@@ -61,9 +68,9 @@ class Language:
 @dataclass
 class TsFile:
     path: Path
-    parsed: BeautifulSoup
-    strings: Dict[str, BeautifulSoup]
-    simplified: Dict[str, BeautifulSoup]
+    parsed: 'BeautifulSoup'
+    strings: Dict[str, 'BeautifulSoup']
+    simplified: Dict[str, 'BeautifulSoup']
     language: Language
 
     class LanguageMissingError(Exception):
@@ -695,6 +702,18 @@ if __name__ == '__main__':
                             'on the target side. (default: disabled)')
 
     args = parser.parse_args()
+
+    try:
+        from bs4 import BeautifulSoup
+    except ModuleNotFoundError:
+        print(textwrap.dedent('''\
+            error: missing python module "BeautifulSoup"
+
+            BeautifulSoup is required for reading and writing translations files.
+            Please install it and try again. Note: the package is usually called
+            beautifulsoup4 or bs4, e.g. python310-beautifulsoup4.
+        '''))
+        sys.exit(1)
 
     Merger.run(args)
 
