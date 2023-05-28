@@ -210,7 +210,8 @@ class Merger:
             msg = f'output directory exists: "{self.output}" (use -f to overwrite)'
             raise FileExistsError(msg)
         elif not self.output and not self.force:
-            msg = f'use -f to overwrite original target files ("{args.target[0]}")'
+            msg = 'no output directory defined, use -f to overwrite original target files ' + \
+                  f'(merging into "{args.target[0]}")'
             raise FileExistsError(msg)
         elif self.output:
             self.output = Path(self.output)
