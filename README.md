@@ -6,7 +6,7 @@ SPDX-License-Identifier: GFDL-1.3-or-later
 # Translations merger
 
 This tool can merge Qt translations catalogs. It is intended as an eventual
-replacement for the Bash script [opal-merge-translations.sh]()
+replacement for the Bash script [opal-merge-translations.sh](https://github.com/Pretty-SFOS/opal/blob/main/snippets/opal-merge-translations.sh)
 currently in use in Opal.
 
 
