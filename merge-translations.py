@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+#
+# This file is part of Opal.
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2022-2023 Mirian Margiani
+#
+# @@@ FILE VERSION 0.1.0
+#
 
 import argparse
 from collections import defaultdict
