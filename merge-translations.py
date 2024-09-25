@@ -77,7 +77,6 @@ class TsFile:
     path: Path
     parsed: 'BeautifulSoup'
     strings: Dict[str, 'BeautifulSoup']
-    simplified: Dict[str, 'BeautifulSoup']
     language: Language
 
     class LanguageMissingError(Exception):
@@ -92,7 +91,6 @@ class TsFile:
             parsed = BeautifulSoup(f.read(), 'xml')
 
         strings = {}
-        simplified = {}
         for elem in parsed.select('context > message'):
             string = elem.source.string
 
@@ -100,7 +98,6 @@ class TsFile:
                 continue
 
             strings[elem.source.string] = elem.translation
-            simplified[re.sub(r'[-_.,:()<>\[\];!?\s]', '', elem.source.string)] = elem.translation
 
         language = None
         if elem := parsed.find('TS', recursive=False):
@@ -118,7 +115,7 @@ class TsFile:
             else:
                 language = Language('', '')
 
-        return TsFile(Path(path), parsed, strings, simplified, language)
+        return TsFile(Path(path), parsed, strings, language)
 
     def __lt__(self, other: 'TsFile') -> bool:  # required for sorting
         return str(self.path) < str(other.path)
