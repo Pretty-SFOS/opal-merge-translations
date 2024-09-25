@@ -415,26 +415,26 @@ class Merger:
         changes = 0
         alternatives = defaultdict(list)
 
-        for key, own in target.strings.items():
+        for key, into in target.strings.items():
             if key in source.strings:
-                other = source.strings[key]
+                outof = source.strings[key]
                 has_numerus = False
 
-                if len(other.select('numerusform')) != len(own.select('numerusform')):
+                if len(outof.select('numerusform')) != len(into.select('numerusform')):
                     has_numerus = True
-                    own_nums = own.select('numerusform')
+                    into_nums = into.select('numerusform')
 
-                    if not own.string and len(own_nums) == 1 and not own_nums[0].string:  # and getattr(own, 'type', '') == 'unfinished':
-                        own.replace_with(other)  # insert all plural forms
+                    if not into.string and len(into_nums) == 1 and not into_nums[0].string:  # and getattr(into, 'type', '') == 'unfinished':
+                        into.replace_with(outof)  # insert all plural forms
                     else:
                         print("WARNING: string has numerusform in one file but not in other")
-                        print(f"        {key}: {len(other.select('numerusform'))} vs. {len(own.select('numerusform'))}")
-                elif len(own.select('numerusform')) > 0:
-                    own_nums = own.select('numerusform')
-                    other_nums = other.select('numerusform')
+                        print(f"        {key}: {len(outof.select('numerusform'))} vs. {len(into.select('numerusform'))}")
+                elif len(into.select('numerusform')) > 0:
+                    into_nums = into.select('numerusform')
+                    outof_nums = outof.select('numerusform')
                     has_numerus = True
 
-                    for a, b in zip(own_nums, other_nums):
+                    for a, b in zip(into_nums, outof_nums):
                         if b.string and not a.string:
                             a.string = b.string
                             changes += 1
@@ -451,45 +451,45 @@ class Merger:
                     equal = True
                     has_empty = False
 
-                    for a, b in zip(own_nums, other_nums):
+                    for a, b in zip(into_nums, outof_nums):
                         if a.string != b.string:
                             equal = False
 
                         if not a.string or not b.string:
                             has_empty = True
 
-                    if equal and getattr(other, 'type', '') != 'unfinished' or getattr(own, 'type', '') != 'unfinished':
-                        own['type'] = ''
-                        # del own['type']
+                    if equal and getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
+                        into['type'] = ''
+                        # del into['type']
 
                     if has_empty:
-                        own['type'] = 'unfinished'
-                elif other.string and not own.string:
-                    own.string = other.string
+                        into['type'] = 'unfinished'
+                elif outof.string and not into.string:
+                    into.string = outof.string
                     changes += 1
 
-                    if getattr(other, 'type', '') == 'unfinished':
-                        own['type'] = 'unfinished'
+                    if getattr(outof, 'type', '') == 'unfinished':
+                        into['type'] = 'unfinished'
                     else:
-                        own['type'] = ''
-                        # del own['type']
-                elif other.string == own.string:
-                    if getattr(other, 'type', '') != 'unfinished' or getattr(own, 'type', '') != 'unfinished':
-                        own['type'] = ''
-                        # del own['type']
+                        into['type'] = ''
+                        # del into['type']
+                elif outof.string == into.string:
+                    if getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
+                        into['type'] = ''
+                        # del into['type']
                     # changes += 1
-                elif other.string and other.string != own.string:
-                    comment = XmlComment('alternative translation: ' + other.string)
-                    own.insert_before(comment)
+                elif outof.string and outof.string != into.string:
+                    comment = XmlComment('alternative translation: ' + outof.string)
+                    into.insert_before(comment)
                     # changes += 1
 
                     if alternatives[key]:
-                        alternatives[key].append(other.string)
+                        alternatives[key].append(outof.string)
                     else:
-                        alternatives[key] += ['** ' + own.string, other.string]
+                        alternatives[key] += ['** ' + into.string, outof.string]
 
-                if not has_numerus and not own.string:
-                    own['type'] = 'unfinished'
+                if not has_numerus and not into.string:
+                    into['type'] = 'unfinished'
 
         return (changes, alternatives)
 
