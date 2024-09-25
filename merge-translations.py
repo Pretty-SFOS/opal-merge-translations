@@ -330,7 +330,7 @@ class Merger:
 
         if expected:
             expected = Path(expected_dir / expected)
-            print(f"- file exists at {expected}")
+            print(f"- expected base file exists at {expected}")
 
             if expected.is_file():
                 pass  # "return expected" below
