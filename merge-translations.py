@@ -416,80 +416,82 @@ class Merger:
         alternatives = defaultdict(list)
 
         for key, into in target.strings.items():
-            if key in source.strings:
-                outof = source.strings[key]
-                has_numerus = False
+            if key not in source.strings:
+                continue
 
-                if len(outof.select('numerusform')) != len(into.select('numerusform')):
-                    has_numerus = True
-                    into_nums = into.select('numerusform')
+            outof = source.strings[key]
+            has_numerus = False
 
-                    if not into.string and len(into_nums) == 1 and not into_nums[0].string:  # and getattr(into, 'type', '') == 'unfinished':
-                        into.replace_with(outof)  # insert all plural forms
-                    else:
-                        print("WARNING: string has numerusform in one file but not in other")
-                        print(f"        {key}: {len(outof.select('numerusform'))} vs. {len(into.select('numerusform'))}")
-                elif len(into.select('numerusform')) > 0:
-                    into_nums = into.select('numerusform')
-                    outof_nums = outof.select('numerusform')
-                    has_numerus = True
+            if len(outof.select('numerusform')) != len(into.select('numerusform')):
+                has_numerus = True
+                into_nums = into.select('numerusform')
 
-                    for a, b in zip(into_nums, outof_nums):
-                        if b.string and not a.string:
-                            a.string = b.string
-                            changes += 1
-                        elif b.string and b.string != a.string:
-                            comment = XmlComment('alternative translation: ' + b.string)
-                            a.insert_before(comment)
-                            # changes += 1
+                if not into.string and len(into_nums) == 1 and not into_nums[0].string:  # and getattr(into, 'type', '') == 'unfinished':
+                    into.replace_with(outof)  # insert all plural forms
+                else:
+                    print("WARNING: string has numerusform in one file but not in other")
+                    print(f"        {key}: {len(outof.select('numerusform'))} vs. {len(into.select('numerusform'))}")
+            elif len(into.select('numerusform')) > 0:
+                into_nums = into.select('numerusform')
+                outof_nums = outof.select('numerusform')
+                has_numerus = True
 
-                            if alternatives[key]:
-                                alternatives[key].append(b.string)
-                            else:
-                                alternatives[key] += ['** ' + a.string, b.string]
+                for a, b in zip(into_nums, outof_nums):
+                    if b.string and not a.string:
+                        a.string = b.string
+                        changes += 1
+                    elif b.string and b.string != a.string:
+                        comment = XmlComment('alternative translation: ' + b.string)
+                        a.insert_before(comment)
+                        # changes += 1
 
-                    equal = True
-                    has_empty = False
+                        if alternatives[key]:
+                            alternatives[key].append(b.string)
+                        else:
+                            alternatives[key] += ['** ' + a.string, b.string]
 
-                    for a, b in zip(into_nums, outof_nums):
-                        if a.string != b.string:
-                            equal = False
+                equal = True
+                has_empty = False
 
-                        if not a.string or not b.string:
-                            has_empty = True
+                for a, b in zip(into_nums, outof_nums):
+                    if a.string != b.string:
+                        equal = False
 
-                    if equal and getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
-                        into['type'] = ''
-                        # del into['type']
+                    if not a.string or not b.string:
+                        has_empty = True
 
-                    if has_empty:
-                        into['type'] = 'unfinished'
-                elif outof.string and not into.string:
-                    into.string = outof.string
-                    changes += 1
+                if equal and getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
+                    into['type'] = ''
+                    # del into['type']
 
-                    if getattr(outof, 'type', '') == 'unfinished':
-                        into['type'] = 'unfinished'
-                    else:
-                        into['type'] = ''
-                        # del into['type']
-                elif outof.string == into.string:
-                    if getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
-                        into['type'] = ''
-                        # del into['type']
-                    # changes += 1
-                elif outof.string and outof.string != into.string:
-                    comment = XmlComment('alternative translation: ' + outof.string)
-                    into.insert_before(comment)
-                    # changes += 1
-
-                    if alternatives[key]:
-                        alternatives[key].append(outof.string)
-                    else:
-                        alternatives[key] += ['** ' + into.string, outof.string]
-
-                if not has_numerus and not into.string:
+                if has_empty:
                     into['type'] = 'unfinished'
+            elif outof.string and not into.string:
+                into.string = outof.string
+                changes += 1
+
+                if getattr(outof, 'type', '') == 'unfinished':
+                    into['type'] = 'unfinished'
+                else:
+                    into['type'] = ''
+                    # del into['type']
+            elif outof.string == into.string:
+                if getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
+                    into['type'] = ''
+                    # del into['type']
+                # changes += 1
+            elif outof.string and outof.string != into.string:
+                comment = XmlComment('alternative translation: ' + outof.string)
+                into.insert_before(comment)
+                # changes += 1
+
+                if alternatives[key]:
+                    alternatives[key].append(outof.string)
+                else:
+                    alternatives[key] += ['** ' + into.string, outof.string]
+
+            if not has_numerus and not into.string:
+                into['type'] = 'unfinished'
 
         return (changes, alternatives)
 
