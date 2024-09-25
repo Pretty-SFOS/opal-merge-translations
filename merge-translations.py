@@ -73,6 +73,19 @@ class Language:
 
 
 @dataclass
+class TranslatedString:
+    source: str
+    translation: 'BeautifulSoup'
+    context: str
+    comment: str
+
+    def __eq__(self, other) -> bool:
+        return self.source == other.source \
+            and self.context == other.context \
+            and self.comment == other.comment
+
+
+@dataclass
 class TsFile:
     path: Path
     parsed: 'BeautifulSoup'
