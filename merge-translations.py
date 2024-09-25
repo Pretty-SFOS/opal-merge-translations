@@ -153,7 +153,11 @@ class TsDirectory:
             msg = f'file or directory "{path}" not found'
             raise FileNotFoundError(msg)
         elif allow_single_file and path.is_file():
-            return TsDirectory.from_single_file(path, require_language=True)
+            try:
+                return TsDirectory.from_single_file(path, require_language=True)
+            except TsFile.LanguageMissingError:
+                print(f'warning: skipped file "{path}"')
+                return TsDirectory(path, {})
         elif not path.is_dir():
             msg = f'directory "{path}" not found'
             raise FileNotFoundError(msg)
