@@ -13,6 +13,7 @@ import sys
 import textwrap
 import glob
 import re
+from copy import copy
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
@@ -74,22 +75,118 @@ class Language:
 
 @dataclass
 class TranslatedString:
+    parsed: 'BeautifulSoup'
     source: str
-    translation: 'BeautifulSoup'
+    translation: 'BeautifulSoup.Tag'
     context: str
     comment: str
 
+    def set_comment(self, value: str) -> None:
+        if node := self.translation.parent.select_one('comment'):
+            node.string = value
+        else:
+            new_tag = self.parsed.new_tag('comment')
+            new_tag.string = value
+            self.translation.parent.append(new_tag)
+
+    def compatibility(self, other: 'TranslatedString') -> int:
+        priority = 0
+
+        if self.source != other.source:
+            return 0
+
+        if self.context == other.context:
+            priority += 4
+        # WARNING Opal-specific special cases
+        elif 'Opal.About.Common' in [self.context, other.context] and \
+                'AboutPage' in [self.context, other.context]:
+            priority += 4
+
+        if self.comment == other.comment:
+            priority += 2
+        elif (not self.comment and other.comment) or \
+                (self.comment and not other.comment):
+            # If one string was updated and the other was not, then it is possible
+            # to get different comments.
+            priority += 1
+        else:
+            # if the disambiguation is different then the strings are
+            # cleary not compatible
+            return 0
+
+        if self.has_plurals == other.has_plurals:
+            priority += 1
+
+            if len(self.translation.select('numerusform')) == \
+                    len(other.translation.select('numerusform')):
+                # The number of plural forms may differ. This is not necessarily
+                # an indication that the strings are incompatible.
+                priority += 1
+        else:
+            # Support for plurals requires code changes which is a conscious
+            # decision by the developer. If one string has plural forms and the
+            # other does not, then the strings are incompatible.
+            return 0
+
+        return priority
+
+    @property
+    def is_finished(self) -> bool:
+        return getattr(self.translation, 'type', '') != 'unfinished'
+
+    @is_finished.setter
+    def is_finished(self, value: bool) -> None:
+        if value:
+            self.translation['type'] = ''
+        else:
+            setattr(self.translation, 'type', 'unfinished')
+
+    @property
+    def has_content(self) -> bool:
+        return self.translation.get_text(strip=True) != ''
+
+    @property
+    def has_plurals(self) -> bool:
+        return getattr(self.translation.parent, 'numerus', 'no') == 'yes'
+
+    @has_plurals.setter
+    def has_plurals(self, value: bool):
+        if value:
+            setattr(self.translation.parent, 'numerus', 'yes')
+        else:
+            self.translation.parent['numerus'] = ''
+
     def __eq__(self, other) -> bool:
-        return self.source == other.source \
-            and self.context == other.context \
-            and self.comment == other.comment
+        if self.source != other.source \
+                or self.has_plurals != other.has_plurals \
+                or self.is_finished != other.is_finished \
+                or self.comment != other.comment:
+            return False
+
+        if self.has_plurals:
+            own_nums = self.translation.select('numerusform')
+            other_nums = other.translation.select('numerusform')
+
+            if len(own_nums) != len(other_nums):
+                return False
+
+            if [x.string for x in own_nums] != [x.string for x in other_nums]:
+                return False
+        else:
+            if self.translation.string != other.translation.string:
+                return False
+
+        # NOTE self.context is deliberately not included in the comparison
+        #      to allow checking whether actual contents are different
+
+        return True
 
 
 @dataclass
 class TsFile:
     path: Path
     parsed: 'BeautifulSoup'
-    strings: Dict[str, 'BeautifulSoup']
+    strings: Dict[str, List[TranslatedString]]
     language: Language
 
     class LanguageMissingError(Exception):
@@ -101,16 +198,27 @@ class TsFile:
             raise FileNotFoundError(path)
 
         with open(path, 'r') as f:
-            parsed = BeautifulSoup(f.read(), 'xml')
+            parsed = BeautifulSoup(f.read(), 'xml', preserve_whitespace_tags=[
+                'comment', 'translation', 'source', 'numerusform'
+            ])
 
-        strings = {}
+        strings = defaultdict(list)
         for elem in parsed.select('context > message'):
             string = elem.source.string
 
             if string is None or str(string) == '':
                 continue
 
-            strings[elem.source.string] = elem.translation
+            if comment := elem.select_one('comment'):
+                comment = comment.get_text(strip=True)
+            else:
+                comment = ''
+
+            strings[elem.source.string] += [
+                TranslatedString(parsed,
+                                 elem.source.string, elem.translation,
+                                 elem.parent.select_one('context > name').string, comment)
+            ]
 
         language = None
         if elem := parsed.find('TS', recursive=False):
@@ -210,6 +318,7 @@ class Merger:
 
         self.sources: List[TsDirectory] = []
         self.target: TsDirectory = None
+        self.overwrite: bool = args.overwrite
 
         self.pairs: Dict[TsFile, List[TsFile]] = defaultdict(list)
         self.handled_files: List[TsFile] = []
@@ -411,87 +520,65 @@ class Merger:
                 for i in self.pairs[val]:
                     print(f'    - {i.path} ({i.language})')
 
+    def _do_merge_string(self, key: str, source_options: List[TranslatedString], target_options: List[TranslatedString]) -> Tuple[str, int, List[str]]:
+        changes = 0
+        alternatives = []
+
+        for target in target_options:
+            matching_source = [[x, target.compatibility(x)] for x in source_options if target.compatibility(x) > 0]
+            matching_source.sort(key=lambda x: x[1])
+
+            if not matching_source:
+                continue
+            else:
+                matching_source: TranslatedString = matching_source[0][0]  # take the highest priority match
+
+            if not matching_source.has_content:
+                continue
+
+            if target == matching_source:
+                continue
+
+            if target.is_finished and target.has_content and not self.overwrite:
+                alternatives.append(f'source: {matching_source.translation.get_text()}')
+                alternatives.append(f'target: {target.translation.get_text()}')
+                continue
+
+            if matching_source.comment and not target.comment:
+                target.set_comment(matching_source.comment)
+
+            if matching_source.has_plurals:
+                for i in target.translation.select('numerusform'):
+                    i.extract()
+
+                for i in matching_source.translation.select('numerusform'):
+                    target.translation.append(copy(i))
+
+                target.has_plurals = True
+            else:
+                target.translation.string = str(matching_source.translation.string)
+
+            target.is_finished = matching_source.is_finished
+
+            changes += 1
+
+        return (key, changes, alternatives)
+
     def _do_merge_pair(self, source: TsFile, target: TsFile) -> Tuple[int, Dict[str, List[str]]]:
         changes = 0
         alternatives = defaultdict(list)
 
-        for key, into in target.strings.items():
+        for key, into_details in target.strings.items():
             if key not in source.strings:
                 continue
 
-            outof = source.strings[key]
-            has_numerus = False
+            outof_details = source.strings[key]
 
-            if len(outof.select('numerusform')) != len(into.select('numerusform')):
-                has_numerus = True
-                into_nums = into.select('numerusform')
+            _key, _changes, _alternatives = self._do_merge_string(key, outof_details, into_details)
+            changes += _changes
 
-                if not into.string and len(into_nums) == 1 and not into_nums[0].string:  # and getattr(into, 'type', '') == 'unfinished':
-                    into.replace_with(outof)  # insert all plural forms
-                else:
-                    print("WARNING: string has numerusform in one file but not in other")
-                    print(f"        {key}: {len(outof.select('numerusform'))} vs. {len(into.select('numerusform'))}")
-            elif len(into.select('numerusform')) > 0:
-                into_nums = into.select('numerusform')
-                outof_nums = outof.select('numerusform')
-                has_numerus = True
-
-                for a, b in zip(into_nums, outof_nums):
-                    if b.string and not a.string:
-                        a.string = b.string
-                        changes += 1
-                    elif b.string and b.string != a.string:
-                        comment = XmlComment('alternative translation: ' + b.string)
-                        a.insert_before(comment)
-                        # changes += 1
-
-                        if alternatives[key]:
-                            alternatives[key].append(b.string)
-                        else:
-                            alternatives[key] += ['** ' + a.string, b.string]
-
-                equal = True
-                has_empty = False
-
-                for a, b in zip(into_nums, outof_nums):
-                    if a.string != b.string:
-                        equal = False
-
-                    if not a.string or not b.string:
-                        has_empty = True
-
-                if equal and getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
-                    into['type'] = ''
-                    # del into['type']
-
-                if has_empty:
-                    into['type'] = 'unfinished'
-            elif outof.string and not into.string:
-                into.string = outof.string
-                changes += 1
-
-                if getattr(outof, 'type', '') == 'unfinished':
-                    into['type'] = 'unfinished'
-                else:
-                    into['type'] = ''
-                    # del into['type']
-            elif outof.string == into.string:
-                if getattr(outof, 'type', '') != 'unfinished' or getattr(into, 'type', '') != 'unfinished':
-                    into['type'] = ''
-                    # del into['type']
-                # changes += 1
-            elif outof.string and outof.string != into.string:
-                comment = XmlComment('alternative translation: ' + outof.string)
-                into.insert_before(comment)
-                # changes += 1
-
-                if alternatives[key]:
-                    alternatives[key].append(outof.string)
-                else:
-                    alternatives[key] += ['** ' + into.string, outof.string]
-
-            if not has_numerus and not into.string:
-                into['type'] = 'unfinished'
+            if _alternatives:
+                alternatives[key] = _alternatives
 
         return (changes, alternatives)
 
@@ -714,6 +801,8 @@ if __name__ == '__main__':
     parser.add_argument('--output', '-o', type=str, nargs='?',
                         help='optional output directory; files will be modified '
                              'in-place if no output directory is specified')
+    parser.add_argument('--overwrite', '-F', action='store_true', default=False,
+                        help='overwrite already translated strings')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--base-catalogue', '-b', type=str, nargs='?',
                        help='use this translations file as the basis for creating '
