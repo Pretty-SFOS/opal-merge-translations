@@ -132,14 +132,16 @@ class TranslatedString:
 
     @property
     def is_finished(self) -> bool:
-        return getattr(self.translation, 'type', '') != 'unfinished'
+        if 'type' in self.translation.attrs:
+            return self.translation['type'] != 'unfinished'
+        return True
 
     @is_finished.setter
     def is_finished(self, value: bool) -> None:
         if value:
             self.translation['type'] = ''
         else:
-            setattr(self.translation, 'type', 'unfinished')
+            self.translation['type'] = 'unfinished'
 
     @property
     def has_content(self) -> bool:
@@ -147,12 +149,14 @@ class TranslatedString:
 
     @property
     def has_plurals(self) -> bool:
-        return getattr(self.translation.parent, 'numerus', 'no') == 'yes'
+        if 'numerus' in self.translation.parent.attrs:
+            return self.translation.parent['numerus'] == 'yes'
+        return False
 
     @has_plurals.setter
     def has_plurals(self, value: bool):
         if value:
-            setattr(self.translation.parent, 'numerus', 'yes')
+            self.translation.parent['numerus'] = 'yes'
         else:
             self.translation.parent['numerus'] = ''
 
