@@ -20,7 +20,7 @@ standard library.
 
 ## License
 
-    Copyright (C) 2022-2023  Mirian Margiani
+    Copyright (C) since 2022  Mirian Margiani
     Program: opal-merge-translations
 
     This program is free software: you can redistribute it and/or modify
