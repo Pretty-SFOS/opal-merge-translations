@@ -81,6 +81,7 @@ class TranslatedString:
     translation: 'BeautifulSoup.Tag'
     context: str
     comment: str
+    origin: str
 
     def set_comment(self, value: str) -> None:
         if node := self.translation.parent.select_one('comment'):
@@ -219,10 +220,14 @@ class TsFile:
             else:
                 comment = ''
 
+            origin = Path(path).absolute()
             strings[elem.source.string] += [
                 TranslatedString(parsed,
-                                 elem.source.string, elem.translation,
-                                 elem.parent.select_one('context > name').string, comment)
+                                 elem.source.string,
+                                 elem.translation,
+                                 elem.parent.select_one('context > name').string,
+                                 comment,
+                                 origin)
             ]
 
         language = None
@@ -335,7 +340,7 @@ class Merger:
         self.new_catalogues: Dict[Language, TsFile] = {}
 
         self.overall_changes: int = 0
-        self.overall_alternatives: Dict[TsFile, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
+        self.overall_alternatives: Dict[TsFile, Dict[str, Dict[str, list]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         self.overall_alternatives_count: int = 0
         self.overall_new_catalogues: int = 0
 
@@ -498,7 +503,7 @@ class Merger:
 
     def _do_merge_string(self, key: str, source_options: List[TranslatedString], target_options: List[TranslatedString]) -> Tuple[str, int, List[str]]:
         changes = 0
-        alternatives = []
+        alternatives = defaultdict(list)
 
         for target in target_options:
             matching_source = [[x, target.compatibility(x)] for x in source_options if target.compatibility(x) > 0]
@@ -516,8 +521,8 @@ class Merger:
                 continue
 
             if target.is_finished and target.has_content and not self.overwrite:
-                alternatives.append(f'source: {matching_source.translation.get_text()}')
-                alternatives.append(f'target: {target.translation.get_text()}')
+                alternatives[target.translation.get_text()].append(target.origin)
+                alternatives[matching_source.translation.get_text()].append(matching_source.origin)
                 continue
 
             if matching_source.comment and not target.comment:
@@ -573,7 +578,8 @@ class Merger:
                 total_ambiguous += alternatives_count
 
                 for key, alts in alternatives.items():
-                    self.overall_alternatives[target][key] = list(set(self.overall_alternatives[target][key] + alts))
+                    for k, v in alts.items():
+                        self.overall_alternatives[target][key][k] += v
 
                 print(f'- {source.path} ({source.language}) [+{changes} / {alternatives_count}]')
 
@@ -627,14 +633,15 @@ class Merger:
                 if not all_alts:
                     continue
 
+                target = Path(group.path).absolute()
                 print(f'- {group.path.name} ({len(all_alts.items())} strings):')
 
                 for key in sorted(all_alts.keys()):
                     alts = all_alts[key]
                     print(f'    - {key}')
 
-                    for a in sorted(alts):
-                        print(f'        - {a}')
+                    for a in sorted(alts.keys()):
+                        print(f'        - {a}    [{", ".join([str(x.relative_to(target, walk_up=True)) for x in set(alts[a])])}]')
 
             print('')
 
