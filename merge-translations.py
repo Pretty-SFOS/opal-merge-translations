@@ -259,7 +259,7 @@ class TsDirectory:
         pass
 
     @staticmethod
-    def from_disk(path, allow_single_file=False) -> 'TsDirectory':
+    def from_disk(path, allow_single_file=False, ignore=[]) -> 'TsDirectory':
         path = Path(path)
 
         if not path.exists():
@@ -277,6 +277,9 @@ class TsDirectory:
 
         files = {}
         for i in glob.iglob(str(path / '*.[tT][sS]'), recursive=False):
+            if Path(i).absolute() in ignore:
+                continue
+
             try:
                 ts = TsFile.from_disk(i)
             except TsFile.LanguageMissingError:
@@ -430,7 +433,7 @@ class Merger:
         print('collecting files...')
 
         try:
-            self.target = TsDirectory.from_disk(args.target[0], allow_single_file=True)
+            self.target = TsDirectory.from_disk(args.target[0], allow_single_file=True, ignore=[self.base_catalogue])
         except FileNotFoundError:
             msg = f'target directory not found at "{args.target[0]}"'
             raise FileNotFoundError(msg)
