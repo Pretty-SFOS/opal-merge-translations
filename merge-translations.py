@@ -112,7 +112,7 @@ class TranslatedString:
             priority += 1
         else:
             # if the disambiguation is different then the strings are
-            # cleary not compatible
+            # clearly not compatible
             return 0
 
         if self.has_plurals == other.has_plurals:
