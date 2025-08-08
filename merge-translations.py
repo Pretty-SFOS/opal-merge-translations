@@ -21,7 +21,6 @@ from typing import Dict, List, Tuple
 
 try:
     from bs4 import BeautifulSoup
-    from bs4 import Comment as XmlComment
 except ModuleNotFoundError as e:
     if __name__ == '__main__':
         pass  # handled after parsing cli arguments
@@ -614,9 +613,7 @@ class Merger:
                 AMBIGUOUS STRINGS
                 -----------------
 
-                There were ambiguous strings. All alternatives are included as
-                XML comments in the saved translations files. These comments will
-                be lost when reformatting with lupdate.
+                There were ambiguous strings.
 
                 It is advisable to manually go through the list printed below
                 and ensure all strings are used correctly. This often does not
