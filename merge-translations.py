@@ -2,7 +2,7 @@
 #
 # This file is part of Opal.
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2022-2023 Mirian Margiani
+# SPDX-FileCopyrightText: 2022-2025 Mirian Margiani
 #
 # @@@ FILE VERSION 0.1.0
 #
@@ -13,6 +13,7 @@ import sys
 import textwrap
 import glob
 import re
+from os.path import commonprefix
 from copy import copy
 from pathlib import Path
 from dataclasses import dataclass
@@ -389,8 +390,6 @@ class Merger:
     def _detect_base_catalogue(self, args) -> Path:
         print("detecting base catalogue...")
         target = Path(args.target[0])
-        first = None
-        second = None
 
         expected = None
         expected_dir = None
@@ -398,55 +397,25 @@ class Merger:
         if target.is_dir():
             print("- target is a directory")
             expected_dir = target
-
-            for i in glob.iglob(str(target / '*.ts'), recursive=False):
-                if not first:
-                    first = Path(i).name
-                elif not second:
-                    second = Path(i).name
-                else:
-                    break
-            print("- probing files:", first, second)
+            names = [Path(x).name for x in glob.iglob(str(target / '*.ts'), recursive=False)]
+            expected = commonprefix(names)
         elif target.is_file():
             print("- target is a file")
-            first = target.name
             expected_dir = target.parent
-            print(f"- probing '{first}' in '{expected_dir}'")
 
-        if first and second:
-            common = ''
-            for x, y in zip(list(first), list(second)):
-                if x == y:
-                    common += x
-                else:
-                    break
-
-            first = first[len(common):]
-            print(f"- detected common base '{common}' with remainder '{first}'")
-
-            if match := re.match(r'^-?([a-z]{2}(_[A-Z]{2})?)?\.[tT][sS]$', first):
-                if common.endswith('-'):
-                    common = common[:-1]
-
-                expected = common + '.ts'
-                print(f"- expecting '{expected}' from two files")
-            else:
-                expected = None  # fail
-        elif first:
-            if match := re.match(r'^(?P<base>.+?)(-[a-z]{2}(_[A-Z]{2})?)?\.[tT][sS]$', first):
-                expected = match.group('base') + '.ts'
-                print(f"- expecting '{expected}' from single file")
+            if match := re.match(r'^(?P<base>.+?)(-[a-z]{2}(_[A-Z]{2})?)?\.[tT][sS]$', target.name):
+                expected = match.group('base')
             else:
                 expected = None  # fail
         else:
             expected = None  # fail
 
         if expected:
-            expected = Path(expected_dir / expected)
-            print(f"- expected base file exists at {expected}")
+            print(f"- looking for base catalogue '{expected}.ts'")
+            found = (list(glob.iglob(str(Path(expected_dir / expected).absolute()) + '.[tT][sS]')) or [''])[0]
 
-            if expected.is_file():
-                pass  # "return expected" below
+            if found and Path(found).is_file():
+                expected = Path(found)
             else:
                 msg = f'expected to find the base catalogue at "{expected}" but ' + \
                       'that file does not exist, use -b to set the path manually'
