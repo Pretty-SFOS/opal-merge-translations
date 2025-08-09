@@ -5,8 +5,9 @@ SPDX-License-Identifier: GFDL-1.3-or-later
 
 # Translations merger
 
-This tool can merge Qt translations catalogs. It is intended as an eventual
-replacement for the Bash script [opal-merge-translations.sh](https://github.com/Pretty-SFOS/opal/blob/main/snippets/opal-merge-translations.sh)
+This tool can merge Qt translations catalogs. Translation conflicts can be resolved
+through a guided menu. It is intended as an eventual replacement for the Bash script
+[opal-merge-translations.sh](https://github.com/Pretty-SFOS/opal/blob/main/snippets/opal-merge-translations.sh)
 currently in use in Opal.
 
 
@@ -15,7 +16,7 @@ currently in use in Opal.
 This tool is usable and stable but it requires
 [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/bs4/doc). To be
 included in Opal by default, it should be reworked to use only the Python
-standard library.
+standard library. The code is also quite chaotic and should be cleaned up.
 
 
 ## License

@@ -13,11 +13,14 @@ import sys
 import textwrap
 import glob
 import re
+import string
+import copy
 from os.path import commonprefix
-from copy import copy
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
+
+TranslationAlternatives = Dict['TranslatedString', List['TranslatedString']]
 
 try:
     from bs4 import BeautifulSoup
@@ -56,6 +59,11 @@ class Language:
             return False
 
         if self.area and other.area and self.area != other.area:
+            return False
+
+        if self.area and not other.area:
+            return True
+        elif not self.area and other.area:
             return False
 
         return True
@@ -185,6 +193,9 @@ class TranslatedString:
         #      to allow checking whether actual contents are different
 
         return True
+
+    def __hash__(self) -> int:
+        return hash(str(self.origin) + str(self.translation))
 
 
 @dataclass
@@ -348,6 +359,9 @@ class Merger:
 
         self.base_catalogue = args.base_catalogue
 
+        self.interactive = args.interactive
+        self.always_preferred: List[TsFile] = []
+
         if self.output and Path(self.output).exists() and not self.force:
             msg = f'output directory exists: "{self.output}" (use -f to overwrite)'
             raise FileExistsError(msg)
@@ -500,7 +514,12 @@ class Merger:
                 for i in self.pairs[val]:
                     print(f'    - {i.path} ({i.language})')
 
-    def _do_merge_string(self, key: str, source_options: List[TranslatedString], target_options: List[TranslatedString]) -> Tuple[str, int, List[str]]:
+    def _do_merge_string(self,
+                         key: str,
+                         source_options: list[TranslatedString],
+                         target_options: list[TranslatedString],
+                         overwrite: bool | None = None
+                         ) -> tuple[str, int, TranslationAlternatives]:
         changes = 0
         alternatives = defaultdict(list)
 
@@ -519,9 +538,11 @@ class Merger:
             if target == matching_source:
                 continue
 
-            if target.is_finished and target.has_content and not self.overwrite:
-                alternatives[target.translation.get_text()].append(target.origin)
-                alternatives[matching_source.translation.get_text()].append(matching_source.origin)
+            if target.is_finished and target.has_content and \
+                    ((overwrite is None and not self.overwrite)
+                     or (overwrite is not None and overwrite is False)):
+                if matching_source not in alternatives[target]:
+                    alternatives[target].append(matching_source)
                 continue
 
             if matching_source.comment and not target.comment:
@@ -532,7 +553,7 @@ class Merger:
                     i.extract()
 
                 for i in matching_source.translation.select('numerusform'):
-                    target.translation.append(copy(i))
+                    target.translation.append(copy.copy(i))
 
                 target.has_plurals = True
             else:
@@ -544,9 +565,9 @@ class Merger:
 
         return (key, changes, alternatives)
 
-    def _do_merge_pair(self, source: TsFile, target: TsFile) -> Tuple[int, Dict[str, List[str]]]:
+    def _do_merge_pair(self, source: TsFile, target: TsFile) -> Tuple[int, Dict[str, TranslationAlternatives]]:
         changes = 0
-        alternatives = defaultdict(list)
+        alternatives = defaultdict(dict)
 
         for key, into_details in target.strings.items():
             if key not in source.strings:
@@ -561,6 +582,42 @@ class Merger:
                 alternatives[key] = _alternatives
 
         return (changes, alternatives)
+
+    def _report_alternatives(self, key: TsFile) -> None:
+        all_alts = self.overall_alternatives[key]
+
+        if not all_alts:
+            return
+
+        target = Path(key.path).absolute()
+        print(f'- {len(all_alts.items())} ambiguous strings in {key.path.name}:')
+
+        for key in sorted(all_alts.keys()):
+            alts = all_alts[key]
+            print(f'    - {key}')
+
+            if len(alts.keys()) > 1:
+                print("error: more than one source string is not supported")
+                continue
+
+            current = list(alts.keys())[0]
+            current_text = current.translation.get_text()
+            origins = defaultdict(list)
+            origins[current_text] = []
+
+            for a in alts[current]:
+                path = str(Path(a.origin).relative_to(target, walk_up=True))
+                origins[a.translation.get_text()].append(path)
+
+            origins = {k: sorted(set(v)) for k, v in origins.items()}
+
+            print(f'        - {current_text.strip()}    [{", ".join(['current'] + origins[current_text])}]')
+
+            for a in alts[current]:
+                text = a.translation.get_text()
+                print(f'        - {text.strip()}    [{", ".join(origins[text])}]')
+
+        print('')
 
     def _merge(self):
         print('merging files...')
@@ -590,6 +647,121 @@ class Merger:
         print(f'overall changes: +{self.overall_changes}')
         print(f'overall ambiguous strings: {self.overall_alternatives_count}')
         print('')
+
+        if self.interactive:
+            for group in sorted(self.overall_alternatives.keys()):
+                all_alts = self.overall_alternatives[group]
+
+                if not all_alts:
+                    continue
+
+                title = f' merging {group.path} '
+                print(f'\n{title:-^80}\n')
+
+                target = Path(group.path).absolute()
+                self._report_alternatives(group)
+
+                prefer_all = None
+
+                for key in sorted(all_alts.keys()):
+                    alts = all_alts[key]
+                    print(f'\n{"STRING:":<25s} {key}')
+
+                    if len(alts.keys()) > 1:
+                        print("error: more than one source string is not supported")
+                        continue
+
+                    current = list(alts.keys())[0]
+                    options = {}
+                    origin_options = {}
+                    status_ = {}
+                    by_origin = {}
+
+                    alphabet = list(string.ascii_lowercase)
+                    index = 0
+                    origin_index = 0
+                    options[f'[{index + 1}] {current.translation.get_text().strip()}  [current]'] = current
+                    status_[f'{current.translation.get_text().strip()}  [current]'] = current
+                    current_origin_option = {f'[{alphabet[origin_index]}] always prefer current': target}
+                    status_ = status_ | {'always prefer current': target}
+                    index += 1
+                    origin_index += 1
+
+                    by_origin[target] = current
+
+                    for a in alts[current]:
+                        options[f'[{index + 1}] {a.translation.get_text().strip()}  [{str(a.origin.relative_to(target, walk_up=True))}]'] = a
+                        status_[f'{a.translation.get_text().strip()}  [{str(a.origin.relative_to(target, walk_up=True))}]'] = a
+                        index += 1
+
+                        by_origin[a.origin] = a
+                        origin_key = f'always prefer {a.origin.relative_to(target, walk_up=True)}'
+
+                        for i in alts[current]:
+                            if origin_key not in status_:
+                                origin_options[f'[{alphabet[origin_index]}] {origin_key}'] = i
+                                origin_index += 1
+
+                            status_ = status_ | {origin_key: a.origin for a in alts[current]}
+
+                    options = options | {None: None} | current_origin_option | origin_options
+                    options_keys = list(options.keys())
+
+                    def status_bar(key):
+                        selected = status_[key]
+
+                        if isinstance(selected, Path):
+                            return f'All further ambiguous strings for {group.path.name} will be taken from {selected}.'
+                        else:
+                            extra = []
+
+                            if selected.comment:
+                                extra.append(selected.comment)
+
+                            if selected.has_plurals:
+                                extra.append('with PLURAL forms')
+                            else:
+                                extra.append('in SINGULAR form')
+
+                            if selected.is_finished:
+                                extra.append('marked as FINISHED')
+                            else:
+                                extra.append('marked as INCOMPLETE')
+
+                            return f'[{selected.context}] ' + ' | '.join(extra)
+
+                    def replace_translation(new_translation):
+                        print(f'{"CURRENT TRANSLATION:":<25s} {current.translation.get_text().strip()}')
+                        print(f'{"NEW TRANSLATION:":<25s} {new_translation.translation.get_text().strip()}')
+                        print()
+                        del self.overall_alternatives[group][key]
+                        self._do_merge_string(key, [new_translation], [current], overwrite=True)
+
+                    if prefer_all and prefer_all in by_origin:
+                        replace_translation(by_origin[prefer_all])
+                        continue
+
+                    title = f'\nAlternatives for: {key}'
+                    terminal_menu = TerminalMenu(options_keys,
+                                                 title=title,
+                                                 status_bar=status_bar)
+                    menu_entry_index = terminal_menu.show()
+
+                    if menu_entry_index is None:
+                        print("aborting...")
+                        sys.exit(0)  # user aborted with ctrl-c
+
+                    selected = options[options_keys[menu_entry_index]]
+
+                    if isinstance(selected, Path):
+                        print(f'\nAll further ambiguous strings for {group.path.name} will be taken from:\n{selected}')
+                        prefer_all = selected
+                        replace_translation(by_origin[selected])
+                    else:
+                        replace_translation(selected)
+
+            # all alternatives for this file are now resolved
+            del self.overall_alternatives[group]
 
     def _save(self):
         print('saving files...')
@@ -625,22 +797,9 @@ class Merger:
             print(f'{self.overall_alternatives_count} AMBIGUOUS STRINGS IN {len(self.overall_alternatives.items())} FILES:')
 
             for group in sorted(self.overall_alternatives.keys()):
-                all_alts = self.overall_alternatives[group]
+                self._report_alternatives(group)
 
-                if not all_alts:
-                    continue
-
-                target = Path(group.path).absolute()
-                print(f'- {group.path.name} ({len(all_alts.items())} strings):')
-
-                for key in sorted(all_alts.keys()):
-                    alts = all_alts[key]
-                    print(f'    - {key}')
-
-                    for a in sorted(alts.keys()):
-                        print(f'        - {a}    [{", ".join([str(x.relative_to(target, walk_up=True)) for x in set(alts[a])])}]')
-
-            print('')
+            print()
 
         if self.no_match:
             print(textwrap.dedent('''\
@@ -2448,6 +2607,8 @@ if __name__ == '__main__':
                              'in-place if no output directory is specified')
     parser.add_argument('--overwrite', '-F', action='store_true', default=False,
                         help='overwrite already translated strings')
+    parser.add_argument('--interactive', '-i', action='store_true', default=False,
+                        help='resolve translation conflicts interactively')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--base-catalogue', '-b', type=str, nargs='?',
                        help='use this translations file as the basis for creating '
